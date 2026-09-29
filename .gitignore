@@ -9,3 +9,5 @@
 # Banco SQLite local
 saas_payments.sqlite
 *.sqlite
+.vercel
+.env*

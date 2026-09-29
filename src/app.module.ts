@@ -15,7 +15,7 @@ import { CreateDepositUseCase } from '@domain/deposit/use-cases/create-deposit.u
       isGlobal: true,
       load: [config],
     }),
-    DatabaseModule,
+    DatabaseModule.register(),
     GatewayModule,
   ],
   controllers: [AppController, WebhookController, DepositController],

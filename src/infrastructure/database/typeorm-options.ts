@@ -43,6 +43,10 @@ export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
     password: db.password,
     database: db.database,
     schema: db.schema,
+    // Bancos gerenciados (Neon, Supabase, Vercel Postgres, RDS) normalmente
+    // exigem SSL. Ative com DB_SSL=true; rejectUnauthorized=false cobre certs
+    // autoassinados comuns em ambientes gerenciados.
+    ssl: db.ssl ? { rejectUnauthorized: false } : undefined,
     ...common,
   } as DataSourceOptions;
 }

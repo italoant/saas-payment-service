@@ -14,6 +14,9 @@ export default (): IConfig => ({
     environment: process.env.NODE_ENV || 'development',
   },
   database: {
+    // Default true: dev e testes continuam usando o banco normalmente.
+    // Na Vercel, defina DB_ENABLED=false até provisionar o Postgres.
+    enabled: (process.env.DB_ENABLED ?? 'true').toLowerCase() !== 'false',
     type: (process.env.DB_TYPE as SupportedDbType) || 'postgres',
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT, 10) || 5432,
@@ -21,6 +24,7 @@ export default (): IConfig => ({
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_DATABASE || 'saas_payments',
     schema: process.env.DB_SCHEMA || undefined,
+    ssl: (process.env.DB_SSL ?? '').toLowerCase() === 'true',
     synchronize: (process.env.DB_SYNCHRONIZE ?? '').toLowerCase() === 'true',
     logging: (process.env.DB_LOGGING ?? '').toLowerCase() === 'true',
   },
