@@ -1,45 +1,32 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsInt,
-  IsObject,
-  IsOptional,
-  IsPositive,
-  IsString,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
- * Corpo do webhook de depósito enviado por um SaaS.
+ * Corpo do webhook de confirmação enviado pelo gateway.
  *
- * Genérico de propósito: o valor e a referência são campos de topo, e o
- * `metadata` guarda qualquer coisa específica do SaaS. O payload inteiro é
- * gravado no log — inclusive campos não mapeados aqui.
+ * O gateway não conhece o `source` nem a referência do SaaS: ele informa
+ * apenas o id da cobrança que geramos ao criar o depósito. O serviço usa esse
+ * id para localizar a transação pendente e descobrir todo o resto.
  */
 export class DepositWebhookDto {
   @ApiProperty({
-    example: 10050,
-    description: 'Valor a creditar, em centavos (inteiro positivo).',
+    example: 'stub_9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
+    description:
+      'Id da cobrança no gateway (o gatewayChargeId retornado na criação ' +
+      'do depósito). Chave de conciliação.',
   })
-  @IsInt()
-  @IsPositive()
-  amount: number;
+  @IsString()
+  @MaxLength(255)
+  id: string;
 
   @ApiProperty({
     required: false,
-    example: 'tx_abc123',
+    example: 'paid',
     description:
-      'Referência da transação no sistema de origem. Usada para ' +
-      'idempotência: o mesmo valor não é creditado duas vezes.',
+      'Status informado pelo gateway. Opcional: qualquer valor diferente ' +
+      'de um status de pagamento confirmado não credita o saldo.',
   })
   @IsOptional()
   @IsString()
-  externalReference?: string;
-
-  @ApiProperty({
-    required: false,
-    type: Object,
-    description: 'Dados adicionais específicos do SaaS (gravados no log).',
-  })
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
+  status?: string;
 }

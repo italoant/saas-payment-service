@@ -4,18 +4,18 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
-  Param,
   Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProcessDepositWebhookUseCase } from '@domain/deposit/use-cases/process-deposit-webhook.use-case';
 import { DepositWebhookDto } from './dtos/deposit-webhook.dto';
 
 /**
- * Recebe webhooks de depósito dos SaaS integrados.
+ * Recebe o webhook de confirmação de pagamento do gateway.
  *
- * A rota é parametrizada por `:source` para que qualquer SaaS aponte para o
- * mesmo endpoint identificando-se pela URL (ex.: POST /webhook/saas-a).
+ * O gateway envia apenas o id da cobrança (mais, opcionalmente, um status).
+ * Ele não conhece o `source` nem a referência do SaaS — o serviço descobre
+ * tudo isso a partir da transação pendente associada a esse id.
  */
 @ApiTags('Webhook')
 @Controller('webhook')
@@ -26,31 +26,23 @@ export class WebhookController {
     private readonly processDepositWebhook: ProcessDepositWebhookUseCase,
   ) {}
 
-  @Post(':source')
+  @Post()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Recebe um depósito de um SaaS de origem' })
-  @ApiParam({
-    name: 'source',
-    example: 'saas-a',
-    description: 'Identificador do SaaS que envia o webhook.',
+  @ApiOperation({
+    summary: 'Confirma um depósito a partir do id da cobrança do gateway',
   })
-  async handle(
-    @Param('source') source: string,
-    @Body() body: DepositWebhookDto,
-  ) {
-    this.logger.log(
-      `[Webhook] source=${source} body=${JSON.stringify(body)}`,
-    );
+  async handle(@Body() body: DepositWebhookDto) {
+    this.logger.log(`[Webhook] body=${JSON.stringify(body)}`);
 
     const transaction = await this.processDepositWebhook.execute({
-      source,
-      amount: body.amount,
-      externalReference: body.externalReference,
+      gatewayChargeId: body.id,
+      status: body.status,
       rawPayload: body as unknown as Record<string, unknown>,
     });
 
     return {
       transactionId: transaction.id,
+      source: transaction.source,
       previousBalance: transaction.previousBalance,
       newBalance: transaction.newBalance,
       status: transaction.status,

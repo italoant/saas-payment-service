@@ -21,6 +21,9 @@ import { WalletEntity } from './wallet.entity';
 @Index('uq_wallet_tx_source_ref', ['source', 'externalReference'], {
   unique: true,
 })
+@Index('uq_wallet_tx_gateway_charge_id', ['gatewayChargeId'], {
+  unique: true,
+})
 export class WalletTransactionHistoryEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -56,6 +59,19 @@ export class WalletTransactionHistoryEntity {
     nullable: true,
   })
   externalReference?: string;
+
+  /**
+   * Identificador da cobrança no gateway. Preenchido na criação do depósito
+   * (POST /deposits) e usado para conciliar o webhook de confirmação — que
+   * chega contendo apenas este id, sem saber o `source`.
+   */
+  @Column({
+    name: 'gateway_charge_id',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  gatewayChargeId?: string;
 
   @Column({
     type: 'varchar',

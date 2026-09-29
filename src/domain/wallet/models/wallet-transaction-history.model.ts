@@ -20,6 +20,11 @@ export class WalletTransactionHistoryModel {
   newBalance: number;
   /** Referência da transação no sistema de origem (idempotência). */
   externalReference?: string;
+  /**
+   * Identificador da cobrança no gateway. Usado para conciliar o webhook de
+   * confirmação, que chega apenas com este id.
+   */
+  gatewayChargeId?: string;
   status: TransactionStatusEnum;
   createdAt?: Date;
 

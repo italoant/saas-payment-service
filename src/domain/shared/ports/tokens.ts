@@ -14,3 +14,6 @@ export const DEPOSIT_WEBHOOK_LOG_REPOSITORY = Symbol(
 );
 /** Port para executar operações dentro de uma transação atômica. */
 export const TRANSACTION_MANAGER = Symbol('TRANSACTION_MANAGER');
+
+/** Port de saída para o gateway de pagamento (geração de cobrança/QR Code). */
+export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');

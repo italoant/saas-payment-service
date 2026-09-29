@@ -21,7 +21,7 @@ export class WalletRepositoryAdapter implements WalletRepositoryPort {
     const repo = resolveRepository(this.repository, WalletEntity, ctx);
 
     // Serviço de wallet única: pega a primeira; se não existir, cria.
-    let wallet = await repo.find({ order: { walletId: 'ASC' }, take: 1 });
+    const wallet = await repo.find({ order: { walletId: 'ASC' }, take: 1 });
     if (wallet.length === 0) {
       const created = repo.create({ balance: 0, currency: defaultCurrency });
       const saved = await repo.save(created);

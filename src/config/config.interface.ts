@@ -1,9 +1,5 @@
 export type SupportedDbType =
-  | 'postgres'
-  | 'mysql'
-  | 'mariadb'
-  | 'sqlite'
-  | 'mssql';
+  'postgres' | 'mysql' | 'mariadb' | 'sqlite' | 'mssql';
 
 export interface DatabaseConfig {
   /**

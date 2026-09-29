@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   DEPOSIT_WEBHOOK_LOG_REPOSITORY,
@@ -21,14 +16,34 @@ import { TransactionStatusEnum } from '@domain/shared/enums/transaction-status.e
 import { ProcessDepositWebhookCommand } from './process-deposit-webhook.command';
 
 /**
- * Orquestra o recebimento de um depósito vindo de um SaaS:
+ * Valores de status que o gateway pode enviar para indicar que o pagamento
+ * foi confirmado. Como o gateway ainda não foi definido, tratamos os mais
+ * comuns; quando `status` não vier, assumimos confirmação (o webhook só é
+ * chamado em eventos de pagamento).
+ */
+const PAID_STATUSES = new Set([
+  'paid',
+  'approved',
+  'confirmed',
+  'completed',
+  'success',
+  'succeeded',
+]);
+
+/**
+ * Confirma um depósito a partir do webhook do gateway.
  *
- *   1. grava o log do webhook (sempre, para auditoria);
- *   2. numa transação atômica: lê o saldo atual, cria a entrada no histórico
- *      (saldo anterior -> saldo novo) e atualiza o saldo da wallet;
- *   3. vincula o log à transação criada.
+ * O gateway informa apenas o id da cobrança. O fluxo é:
  *
- * Depende apenas de ports — não conhece TypeORM nem o banco concreto.
+ *   1. grava o log do webhook (auditoria, sempre);
+ *   2. localiza a transação PENDING pelo gatewayChargeId — é assim que
+ *      descobrimos o `source` e os dados do depósito;
+ *   3. se o status recebido não for de pagamento confirmado, não credita;
+ *   4. idempotência: se a transação já está COMPLETED, não credita de novo;
+ *   5. numa transação atômica: aplica o crédito ao saldo da wallet e move a
+ *      transação de PENDING para COMPLETED.
+ *
+ * Depende apenas de ports — não conhece TypeORM nem o gateway concreto.
  */
 @Injectable()
 export class ProcessDepositWebhookUseCase {
@@ -50,45 +65,61 @@ export class ProcessDepositWebhookUseCase {
     command: ProcessDepositWebhookCommand,
   ): Promise<WalletTransactionHistoryModel> {
     this.logger.log(
-      `[DepositWebhook] source=${command.source} amount=${command.amount} ref=${command.externalReference ?? '-'}`,
+      `[DepositWebhook] gatewayChargeId=${command.gatewayChargeId} status=${command.status ?? '-'}`,
     );
 
-    if (!Number.isInteger(command.amount) || command.amount <= 0) {
-      throw new BadRequestException(
-        'amount must be a positive integer (cents)',
-      );
-    }
+    // 1. Localiza a transação pendente pela cobrança. É daqui que sai o
+    // `source` — o gateway não o envia.
+    const transaction = await this.transactionRepository.findByGatewayChargeId(
+      command.gatewayChargeId,
+    );
 
-    // 1. Log sempre gravado, mesmo que a transação falhe depois. Fica fora da
-    // transação de saldo para não ser revertido junto — é trilha de auditoria.
+    // 2. Log de auditoria, sempre gravado. Fica fora da transação de saldo
+    // para não ser revertido junto. `source` vem da transação (ou '-' se não
+    // encontrada, para um id desconhecido).
     const log = await this.webhookLogRepository.create(
       new DepositWebhookLogModel({
-        source: command.source,
+        source: transaction?.source ?? '-',
         payload: command.rawPayload,
       }),
     );
 
-    // 2. Idempotência: se já processamos esta referência, não credita de novo.
-    if (command.externalReference) {
-      const existing = await this.transactionRepository.findByExternalReference(
-        command.source,
-        command.externalReference,
+    if (!transaction) {
+      this.logger.warn(
+        `[DepositWebhook] Nenhuma transação para gatewayChargeId=${command.gatewayChargeId}`,
       );
-      if (existing) {
-        this.logger.warn(
-          `[DepositWebhook] Duplicated event ignored source=${command.source} ref=${command.externalReference}`,
-        );
-        await this.webhookLogRepository.linkToTransaction(log.id, existing.id);
-        return existing;
-      }
+      throw new NotFoundException(
+        `No deposit found for gatewayChargeId=${command.gatewayChargeId}`,
+      );
+    }
+
+    // 3. Se o gateway informou status e ele não é de confirmação, não credita.
+    if (
+      command.status &&
+      !PAID_STATUSES.has(command.status.trim().toLowerCase())
+    ) {
+      this.logger.warn(
+        `[DepositWebhook] status não confirmado (${command.status}) para txId=${transaction.id}; ignorando crédito`,
+      );
+      await this.webhookLogRepository.linkToTransaction(log.id, transaction.id);
+      return transaction;
+    }
+
+    // 4. Idempotência: se já foi creditado, não credita de novo.
+    if (transaction.status === TransactionStatusEnum.COMPLETED) {
+      this.logger.warn(
+        `[DepositWebhook] Evento duplicado ignorado txId=${transaction.id}`,
+      );
+      await this.webhookLogRepository.linkToTransaction(log.id, transaction.id);
+      return transaction;
     }
 
     const defaultCurrency = this.configService.get<string>(
       'wallet.defaultCurrency',
     );
 
-    // 3. Transação atômica: saldo e histórico sobem juntos ou nada sobe.
-    const transaction = await this.transactionManager.runInTransaction(
+    // 5. Transação atômica: crédito no saldo e mudança de status sobem juntos.
+    const settled = await this.transactionManager.runInTransaction(
       async (ctx) => {
         const wallet = await this.walletRepository.getOrCreate(
           defaultCurrency,
@@ -96,18 +127,15 @@ export class ProcessDepositWebhookUseCase {
         );
 
         const previousBalance = wallet.balance;
-        const newBalance = previousBalance + command.amount;
+        const newBalance = previousBalance + transaction.amount;
 
-        const created = await this.transactionRepository.create(
-          new WalletTransactionHistoryModel({
-            walletId: wallet.walletId,
-            source: command.source,
-            amount: command.amount,
+        const updated = await this.transactionRepository.updateSettlement(
+          transaction.id,
+          {
+            status: TransactionStatusEnum.COMPLETED,
             previousBalance,
             newBalance,
-            externalReference: command.externalReference,
-            status: TransactionStatusEnum.COMPLETED,
-          }),
+          },
           ctx,
         );
 
@@ -117,18 +145,17 @@ export class ProcessDepositWebhookUseCase {
           ctx,
         );
 
-        return created;
+        return updated;
       },
     );
 
-    // 4. Vincula o log à transação criada (fora da transação de saldo; se
-    // falhar aqui, o crédito já está consistente e o log continua gravado).
-    await this.webhookLogRepository.linkToTransaction(log.id, transaction.id);
+    // 6. Vincula o log à transação (fora da transação de saldo).
+    await this.webhookLogRepository.linkToTransaction(log.id, settled.id);
 
     this.logger.log(
-      `[DepositWebhook] settled source=${command.source} txId=${transaction.id} previous=${transaction.previousBalance} new=${transaction.newBalance}`,
+      `[DepositWebhook] settled source=${settled.source} txId=${settled.id} previous=${settled.previousBalance} new=${settled.newBalance}`,
     );
 
-    return transaction;
+    return settled;
   }
 }

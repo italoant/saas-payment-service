@@ -8,9 +8,7 @@ import { DepositWebhookLogEntity } from '../entities/deposit-webhook-log.entity'
 import { resolveRepository } from './resolve-repository';
 
 @Injectable()
-export class DepositWebhookLogRepositoryAdapter
-  implements DepositWebhookLogRepositoryPort
-{
+export class DepositWebhookLogRepositoryAdapter implements DepositWebhookLogRepositoryPort {
   constructor(
     @InjectRepository(DepositWebhookLogEntity)
     private readonly repository: Repository<DepositWebhookLogEntity>,

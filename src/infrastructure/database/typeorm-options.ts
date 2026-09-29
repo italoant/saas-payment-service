@@ -17,9 +17,7 @@ export const ENTITIES = [
  * variáveis DB_* mudam. As entidades e migrations são as mesmas — o TypeORM
  * adapta os tipos ao dialeto do banco escolhido.
  */
-export function buildDataSourceOptions(
-  db: DatabaseConfig,
-): DataSourceOptions {
+export function buildDataSourceOptions(db: DatabaseConfig): DataSourceOptions {
   const common = {
     entities: ENTITIES,
     migrations: [__dirname + '/migrations/*.{ts,js}'],
