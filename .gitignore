@@ -1,0 +1,10 @@
+/dist
+/node_modules
+*.log
+.env
+.DS_Store
+*.tsbuildinfo
+
+# Banco SQLite local
+saas_payments.sqlite
+*.sqlite
