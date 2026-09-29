@@ -3,13 +3,6 @@ export type SupportedDbType =
 
 export interface DatabaseConfig {
   /**
-   * Liga/desliga a camada de banco. Quando false (env DB_ENABLED=false), a
-   * aplicação sobe sem conectar a nenhum banco — útil para validar o deploy
-   * antes de provisionar o Postgres. As rotas que dependem de persistência
-   * respondem 503 em vez de derrubar o processo.
-   */
-  enabled: boolean;
-  /**
    * Tipo do banco. Trocar aqui (via env DB_TYPE) é o único ponto necessário
    * para plugar outro banco — o domínio não conhece o driver.
    */

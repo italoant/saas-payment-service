@@ -25,7 +25,6 @@ import { DepositWebhookLogRepositoryAdapter } from './adapters/deposit-webhook-l
 import { PlanRepositoryAdapter } from './adapters/plan-repository.adapter';
 import { SubscriptionRepositoryAdapter } from './adapters/subscription-repository.adapter';
 import { SubscriptionPaymentRepositoryAdapter } from './adapters/subscription-payment-repository.adapter';
-import { createUnavailableRepository } from './adapters/unavailable-repository';
 
 const PORT_TOKENS = [
   TRANSACTION_MANAGER,
@@ -37,10 +36,19 @@ const PORT_TOKENS = [
   SUBSCRIPTION_PAYMENT_REPOSITORY,
 ];
 
+const ENTITIES = [
+  WalletEntity,
+  WalletTransactionHistoryEntity,
+  DepositWebhookLogEntity,
+  PlanEntity,
+  SubscriptionEntity,
+  SubscriptionPaymentEntity,
+];
+
 /**
- * Providers reais (TypeORM) usados quando o banco está habilitado.
+ * Providers TypeORM que ligam cada port do domínio ao seu adapter concreto.
  */
-const realProviders: Provider[] = [
+const providers: Provider[] = [
   { provide: TRANSACTION_MANAGER, useClass: TypeormTransactionManager },
   { provide: WALLET_REPOSITORY, useClass: WalletRepositoryAdapter },
   {
@@ -60,39 +68,17 @@ const realProviders: Provider[] = [
 ];
 
 /**
- * Providers substitutos: a app sobe sem banco e cada token responde 503 ao
- * ser usado (DB_ENABLED=false).
- */
-const stubProviders: Provider[] = PORT_TOKENS.map((token) => ({
-  provide: token,
-  useFactory: () => createUnavailableRepository(),
-}));
-
-/**
- * Módulo de banco desacoplado e condicional.
+ * Módulo de banco.
  *
- * - DB_ENABLED=true (default): conecta via TypeORM e liga os adapters reais.
- * - DB_ENABLED=false: não conecta a nada; a aplicação sobe saudável e as
- *   rotas de persistência respondem 503. Útil para validar o deploy antes de
- *   provisionar o Postgres.
- *
- * A decisão é lida do ambiente em tempo de import do módulo (register()),
- * pois a topologia de imports do Nest precisa ser resolvida antes do DI.
+ * O banco é obrigatório: a aplicação conecta via TypeORM ao subir. Se a
+ * conexão falhar (credenciais/rede/DB indisponível), o bootstrap do Nest
+ * falha e o processo não sobe — não há modo degradado. Configure as
+ * variáveis DB_* (ver .env.example) apontando para o Postgres.
  */
 @Global()
 @Module({})
 export class DatabaseModule {
   static register(): DynamicModule {
-    const enabled = (process.env.DB_ENABLED ?? 'true').toLowerCase() !== 'false';
-
-    if (!enabled) {
-      return {
-        module: DatabaseModule,
-        providers: stubProviders,
-        exports: PORT_TOKENS,
-      };
-    }
-
     return {
       module: DatabaseModule,
       imports: [
@@ -100,18 +86,13 @@ export class DatabaseModule {
           imports: [ConfigModule],
           inject: [ConfigService],
           useFactory: (configService: ConfigService) =>
-            buildDataSourceOptions(configService.get<IConfig['database']>('database')),
+            buildDataSourceOptions(
+              configService.get<IConfig['database']>('database'),
+            ),
         }),
-        TypeOrmModule.forFeature([
-          WalletEntity,
-          WalletTransactionHistoryEntity,
-          DepositWebhookLogEntity,
-          PlanEntity,
-          SubscriptionEntity,
-          SubscriptionPaymentEntity,
-        ]),
+        TypeOrmModule.forFeature(ENTITIES),
       ],
-      providers: realProviders,
+      providers,
       exports: PORT_TOKENS,
     };
   }
