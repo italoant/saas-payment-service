@@ -78,7 +78,19 @@ export async function createApp(
     .setVersion('1.0')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('doc', app, document);
+
+  // Em ambiente serverless (Vercel) os assets estáticos do Swagger UI não são
+  // servidos a partir do filesystem do pacote (resultam em 404, deixando a
+  // página em branco). Carregamos CSS/JS de um CDN com versão pinada.
+  const SWAGGER_UI_VERSION = '5.17.14';
+  const cdn = `https://cdn.jsdelivr.net/npm/swagger-ui-dist@${SWAGGER_UI_VERSION}`;
+  SwaggerModule.setup('doc', app, document, {
+    customCssUrl: `${cdn}/swagger-ui.css`,
+    customJs: [
+      `${cdn}/swagger-ui-bundle.js`,
+      `${cdn}/swagger-ui-standalone-preset.js`,
+    ],
+  });
 
   return app;
 }
