@@ -3,52 +3,44 @@ import {
   Inject,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import {
   PAYMENT_GATEWAY,
-  PLAN_REPOSITORY,
   SUBSCRIPTION_PAYMENT_REPOSITORY,
-  SUBSCRIPTION_REPOSITORY,
-  TRANSACTION_MANAGER,
 } from '@domain/shared/ports/tokens';
-import { TransactionManagerPort } from '@domain/shared/ports/transaction-manager.port';
 import {
   GatewayChargeResult,
   PaymentGatewayPort,
 } from '@domain/deposit/ports/payment-gateway.port';
-import { PlanRepositoryPort } from '@domain/subscription/ports/plan-repository.port';
-import { SubscriptionRepositoryPort } from '@domain/subscription/ports/subscription-repository.port';
 import { SubscriptionPaymentRepositoryPort } from '@domain/subscription/ports/subscription-payment-repository.port';
-import { SubscriptionModel } from '@domain/subscription/models/subscription.model';
 import { SubscriptionPaymentModel } from '@domain/subscription/models/subscription-payment.model';
-import { SubscriptionStatusEnum } from '@domain/shared/enums/subscription-status.enum';
 import { SubscriptionPaymentStatusEnum } from '@domain/shared/enums/subscription-payment-status.enum';
 import { CreateSubscriptionChargeCommand } from './create-subscription-charge.command';
 
+/** Intervalo padrão de renovação (mensal). */
+const DEFAULT_INTERVAL_DAYS = 30;
+
 /**
- * Resultado da criação de uma cobrança de assinatura: a assinatura (criada ou
- * existente), a cobrança PENDING registrada e os dados do QR Code para pagar.
+ * Resultado da criação de uma cobrança: a cobrança PENDING registrada e os
+ * dados do QR Code para pagamento.
  */
 export interface CreateSubscriptionChargeResult {
-  subscription: SubscriptionModel;
   payment: SubscriptionPaymentModel;
   charge: GatewayChargeResult;
 }
 
 /**
- * Orquestra a criação de uma cobrança de assinatura:
+ * Cria uma cobrança de assinatura para um cliente do front:
  *
- *   1. valida o plano (existe e está ativo);
- *   2. garante a assinatura para (source, externalId) — cria PENDING se não
- *      existir (idempotente);
- *   3. chama o gateway para gerar a cobrança (QR Code) do valor do plano;
- *   4. registra a cobrança como PENDING (o vencimento NÃO muda aqui — a
- *      prorrogação acontece quando o gateway confirmar o pagamento via
- *      webhook);
- *   5. retorna assinatura, cobrança e QR Code.
+ *   1. valida valor e intervalo;
+ *   2. gera a cobrança no gateway (QR Code);
+ *   3. registra a cobrança como PENDING referenciando o cliente
+ *      (source + externalId) — o vencimento do cliente NÃO muda aqui; a
+ *      prorrogação acontece quando o gateway confirmar o pagamento (webhook);
+ *   4. retorna a cobrança e o QR Code.
  *
- * Depende apenas de ports — não conhece TypeORM nem o gateway concreto.
+ * Depende apenas de ports — não conhece TypeORM nem o gateway concreto. Não há
+ * `plan`/`subscription`: a fonte da verdade da assinatura é o `customers`.
  */
 @Injectable()
 export class CreateSubscriptionChargeUseCase {
@@ -57,12 +49,6 @@ export class CreateSubscriptionChargeUseCase {
   constructor(
     @Inject(PAYMENT_GATEWAY)
     private readonly paymentGateway: PaymentGatewayPort,
-    @Inject(TRANSACTION_MANAGER)
-    private readonly transactionManager: TransactionManagerPort,
-    @Inject(PLAN_REPOSITORY)
-    private readonly planRepository: PlanRepositoryPort,
-    @Inject(SUBSCRIPTION_REPOSITORY)
-    private readonly subscriptionRepository: SubscriptionRepositoryPort,
     @Inject(SUBSCRIPTION_PAYMENT_REPOSITORY)
     private readonly paymentRepository: SubscriptionPaymentRepositoryPort,
   ) {}
@@ -70,61 +56,51 @@ export class CreateSubscriptionChargeUseCase {
   async execute(
     command: CreateSubscriptionChargeCommand,
   ): Promise<CreateSubscriptionChargeResult> {
+    const intervalDays = command.intervalDays ?? DEFAULT_INTERVAL_DAYS;
+
     this.logger.log(
-      `[CreateSubscriptionCharge] source=${command.source} externalId=${command.externalId} planId=${command.planId}`,
+      `[CreateSubscriptionCharge] source=${command.source} externalId=${command.externalId} amount=${command.amount} intervalDays=${intervalDays}`,
     );
 
-    // 1. Valida o plano.
-    const plan = await this.planRepository.findById(command.planId);
-    if (!plan) {
-      throw new NotFoundException(`Plan not found id=${command.planId}`);
+    if (!command.externalId?.trim()) {
+      throw new BadRequestException('externalId is required');
     }
-    if (!plan.active) {
-      throw new BadRequestException(`Plan is not active id=${command.planId}`);
-    }
-
-    // 2. Garante a assinatura (idempotente por source+externalId).
-    let subscription =
-      await this.subscriptionRepository.findBySourceAndExternalId(
-        command.source,
-        command.externalId,
+    if (!Number.isInteger(command.amount) || command.amount <= 0) {
+      throw new BadRequestException(
+        'amount must be a positive integer (cents)',
       );
-    if (!subscription) {
-      subscription = await this.subscriptionRepository.create(
-        new SubscriptionModel({
-          source: command.source,
-          externalId: command.externalId,
-          planId: plan.id,
-          status: SubscriptionStatusEnum.PENDING,
-          currentPeriodEnd: null,
-          extendedDays: 0,
-        }),
+    }
+    if (!Number.isInteger(intervalDays) || intervalDays <= 0) {
+      throw new BadRequestException(
+        'intervalDays must be a positive integer (days)',
       );
     }
 
-    // 3. Gera a cobrança no gateway (fora de transação: chamada de rede).
+    // 1. Gera a cobrança no gateway (fora de transação: chamada de rede).
     const charge = await this.paymentGateway.createCharge({
       source: command.source,
-      amount: plan.amount,
-      externalReference: `${command.source}:${command.externalId}:${subscription.id}`,
+      amount: command.amount,
+      externalReference: `${command.source}:${command.externalId}`,
     });
 
-    // 4. Registra a cobrança PENDING. O vencimento só muda na confirmação.
+    // 2. Registra a cobrança PENDING. O vencimento do cliente só muda na
+    // confirmação (webhook).
     const payment = await this.paymentRepository.create(
       new SubscriptionPaymentModel({
-        subscriptionId: subscription.id,
         source: command.source,
-        amount: plan.amount,
+        externalId: command.externalId,
+        amount: command.amount,
+        intervalDays,
         gatewayChargeId: charge.gatewayChargeId,
         status: SubscriptionPaymentStatusEnum.PENDING,
-        periodEnd: null,
+        paidPeriodEnd: null,
       }),
     );
 
     this.logger.log(
-      `[CreateSubscriptionCharge] pending paymentId=${payment.id} subscriptionId=${subscription.id} gatewayChargeId=${charge.gatewayChargeId}`,
+      `[CreateSubscriptionCharge] pending paymentId=${payment.id} gatewayChargeId=${charge.gatewayChargeId}`,
     );
 
-    return { subscription, payment, charge };
+    return { payment, charge };
   }
 }

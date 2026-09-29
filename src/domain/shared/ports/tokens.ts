@@ -18,13 +18,13 @@ export const TRANSACTION_MANAGER = Symbol('TRANSACTION_MANAGER');
 /** Port de saída para o gateway de pagamento (geração de cobrança/QR Code). */
 export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');
 
-/** Repositório de planos de assinatura. */
-export const PLAN_REPOSITORY = Symbol('PLAN_REPOSITORY');
-
-/** Repositório de assinaturas. */
-export const SUBSCRIPTION_REPOSITORY = Symbol('SUBSCRIPTION_REPOSITORY');
-
 /** Repositório de cobranças de assinatura. */
 export const SUBSCRIPTION_PAYMENT_REPOSITORY = Symbol(
   'SUBSCRIPTION_PAYMENT_REPOSITORY',
 );
+
+/**
+ * Repositório do cliente (tabela `customers`, fonte da verdade da assinatura,
+ * gerida pelo front). O backend só a atualiza ao confirmar pagamento.
+ */
+export const CUSTOMER_REPOSITORY = Symbol('CUSTOMER_REPOSITORY');

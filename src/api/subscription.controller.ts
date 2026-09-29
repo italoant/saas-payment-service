@@ -12,12 +12,13 @@ import { CreateSubscriptionChargeUseCase } from '@domain/subscription/use-cases/
 import { CreateSubscriptionChargeDto } from './dtos/create-subscription-charge.dto';
 
 /**
- * Cria cobranças de assinatura para os SaaS integrados.
+ * Cria cobranças de assinatura para os clientes de um SaaS.
  *
- * A rota é parametrizada por `:source` (mesmo padrão de depósitos/webhook).
- * O fluxo é: o SaaS pede a cobrança de um cliente para um plano -> o serviço
- * garante a assinatura, gera o QR Code no gateway e registra a cobrança como
- * PENDING -> quando o pagamento é confirmado, o webhook prorroga a assinatura.
+ * A rota é parametrizada por `:source` (o saasId). O fluxo: o front cadastra
+ * um cliente pagante -> chama esta rota com o customer.id (externalId), valor
+ * e intervalo -> o serviço gera o QR Code e registra a cobrança PENDING ->
+ * quando o pagamento é confirmado, o webhook prorroga o cliente (marca pago e
+ * empurra o vencimento) diretamente na tabela `customers`.
  */
 @ApiTags('Subscriptions')
 @Controller('subscriptions')
@@ -32,12 +33,12 @@ export class SubscriptionController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      'Cria uma cobrança de assinatura e retorna o QR Code gerado pelo gateway',
+      'Cria uma cobrança de assinatura para um cliente e retorna o QR Code',
   })
   @ApiParam({
     name: 'source',
     example: 'saas-a',
-    description: 'Identificador do SaaS que solicita a cobrança.',
+    description: 'Identificador do SaaS (saasId).',
   })
   async createChargeHandler(
     @Param('source') source: string,
@@ -47,18 +48,19 @@ export class SubscriptionController {
       `[Subscription] charge source=${source} body=${JSON.stringify(body)}`,
     );
 
-    const { subscription, payment, charge } = await this.createCharge.execute({
+    const { payment, charge } = await this.createCharge.execute({
       source,
       externalId: body.externalId,
-      planId: body.planId,
+      amount: body.amount,
+      intervalDays: body.intervalDays,
     });
 
     return {
-      subscriptionId: subscription.id,
-      subscriptionStatus: subscription.status,
-      currentPeriodEnd: subscription.currentPeriodEnd,
       paymentId: payment.id,
+      externalId: payment.externalId,
       amount: payment.amount,
+      intervalDays: payment.intervalDays,
+      status: payment.status,
       gatewayChargeId: charge.gatewayChargeId,
       qrCode: {
         payload: charge.qrCodePayload,

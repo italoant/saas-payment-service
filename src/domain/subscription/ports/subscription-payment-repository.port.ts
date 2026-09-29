@@ -3,7 +3,7 @@ import { SubscriptionPaymentStatusEnum } from '@domain/shared/enums/subscription
 import { TransactionContext } from '@domain/shared/ports/transaction-manager.port';
 
 export interface SubscriptionPaymentRepositoryPort {
-  /** Cria uma cobrança de assinatura (PENDING). */
+  /** Cria uma cobrança (PENDING). */
   create(
     data: SubscriptionPaymentModel,
     ctx?: TransactionContext,
@@ -11,19 +11,19 @@ export interface SubscriptionPaymentRepositoryPort {
 
   /**
    * Busca uma cobrança pelo id da cobrança no gateway. Usada pelo webhook —
-   * que chega apenas com esse id — para localizar a assinatura a prorrogar.
+   * que chega apenas com esse id — para localizar o cliente a prorrogar.
    */
   findByGatewayChargeId(
     gatewayChargeId: string,
     ctx?: TransactionContext,
   ): Promise<SubscriptionPaymentModel | null>;
 
-  /** Atualiza o status/período de uma cobrança na confirmação do pagamento. */
+  /** Atualiza status/vencimento aplicado na confirmação do pagamento. */
   updateSettlement(
     id: number,
     data: {
       status: SubscriptionPaymentStatusEnum;
-      periodEnd: Date | null;
+      paidPeriodEnd: Date | null;
     },
     ctx?: TransactionContext,
   ): Promise<SubscriptionPaymentModel>;

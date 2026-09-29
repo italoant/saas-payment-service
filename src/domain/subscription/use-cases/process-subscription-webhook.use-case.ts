@@ -5,25 +5,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  PLAN_REPOSITORY,
+  CUSTOMER_REPOSITORY,
   SUBSCRIPTION_PAYMENT_REPOSITORY,
-  SUBSCRIPTION_REPOSITORY,
   TRANSACTION_MANAGER,
 } from '@domain/shared/ports/tokens';
 import { TransactionManagerPort } from '@domain/shared/ports/transaction-manager.port';
-import { PlanRepositoryPort } from '@domain/subscription/ports/plan-repository.port';
-import { SubscriptionRepositoryPort } from '@domain/subscription/ports/subscription-repository.port';
 import { SubscriptionPaymentRepositoryPort } from '@domain/subscription/ports/subscription-payment-repository.port';
-import { SubscriptionModel } from '@domain/subscription/models/subscription.model';
-import { SubscriptionStatusEnum } from '@domain/shared/enums/subscription-status.enum';
+import { CustomerRepositoryPort } from '@domain/subscription/ports/customer-repository.port';
 import { SubscriptionPaymentStatusEnum } from '@domain/shared/enums/subscription-payment-status.enum';
 import { nextPeriodEnd } from '@domain/subscription/subscription-period';
 import { ProcessSubscriptionWebhookCommand } from './process-subscription-webhook.command';
 
 /**
- * Valores de status que o gateway pode enviar para indicar pagamento
- * confirmado (mesmos aceitos no fluxo de depósito). Quando `status` não vier,
- * assumimos confirmação (o webhook só é chamado em eventos de pagamento).
+ * Status que o gateway pode enviar para indicar pagamento confirmado. Quando
+ * `status` não vier, assumimos confirmação (o webhook só é chamado em eventos
+ * de pagamento).
  */
 const PAID_STATUSES = new Set([
   'paid',
@@ -34,20 +30,29 @@ const PAID_STATUSES = new Set([
   'succeeded',
 ]);
 
+/** Resultado do processamento: a cobrança e o vencimento aplicado (se pago). */
+export interface ProcessSubscriptionWebhookResult {
+  paymentId: number;
+  status: SubscriptionPaymentStatusEnum;
+  customerId: string;
+  newDueDate: Date | null;
+}
+
 /**
- * Confirma o pagamento de uma assinatura a partir do webhook do gateway e
- * prorroga o vencimento.
+ * Confirma o pagamento de uma cobrança a partir do webhook do gateway e
+ * prorroga a assinatura DIRETAMENTE no cliente (tabela `customers`, fonte da
+ * verdade). Fluxo:
  *
- * O fluxo é:
- *   1. localiza a cobrança PENDING pelo gatewayChargeId — é assim que
- *      descobrimos qual assinatura prorrogar (o gateway só manda o id);
- *   2. se o status recebido não for de pagamento confirmado, marca a cobrança
- *      como FAILED e não prorroga;
- *   3. idempotência: se a cobrança já está PAID, não prorroga de novo;
- *   4. numa transação atômica: calcula o novo vencimento (intervalo do plano),
- *      ativa a assinatura e atualiza a cobrança para PAID.
+ *   1. localiza a cobrança PENDING pelo gatewayChargeId (o gateway só manda o
+ *      id) — dela saem o cliente (source+externalId) e o intervalo;
+ *   2. se o status não for de pagamento confirmado, marca a cobrança FAILED e
+ *      não prorroga;
+ *   3. idempotência: cobrança já PAID não prorroga de novo;
+ *   4. numa transação atômica: calcula o novo vencimento a partir do
+ *      vencimento atual do cliente + intervalo, marca o cliente como pago com
+ *      o novo vencimento e confirma a cobrança (PAID).
  *
- * Depende apenas de ports — não conhece TypeORM nem o gateway concreto.
+ * Depende apenas de ports.
  */
 @Injectable()
 export class ProcessSubscriptionWebhookUseCase {
@@ -56,22 +61,20 @@ export class ProcessSubscriptionWebhookUseCase {
   constructor(
     @Inject(TRANSACTION_MANAGER)
     private readonly transactionManager: TransactionManagerPort,
-    @Inject(PLAN_REPOSITORY)
-    private readonly planRepository: PlanRepositoryPort,
-    @Inject(SUBSCRIPTION_REPOSITORY)
-    private readonly subscriptionRepository: SubscriptionRepositoryPort,
     @Inject(SUBSCRIPTION_PAYMENT_REPOSITORY)
     private readonly paymentRepository: SubscriptionPaymentRepositoryPort,
+    @Inject(CUSTOMER_REPOSITORY)
+    private readonly customerRepository: CustomerRepositoryPort,
   ) {}
 
   async execute(
     command: ProcessSubscriptionWebhookCommand,
-  ): Promise<SubscriptionModel> {
+  ): Promise<ProcessSubscriptionWebhookResult> {
     this.logger.log(
       `[SubscriptionWebhook] gatewayChargeId=${command.gatewayChargeId} status=${command.status ?? '-'}`,
     );
 
-    // 1. Localiza a cobrança pendente pela cobrança do gateway.
+    // 1. Localiza a cobrança pendente.
     const payment = await this.paymentRepository.findByGatewayChargeId(
       command.gatewayChargeId,
     );
@@ -80,20 +83,11 @@ export class ProcessSubscriptionWebhookUseCase {
         `[SubscriptionWebhook] Nenhuma cobrança para gatewayChargeId=${command.gatewayChargeId}`,
       );
       throw new NotFoundException(
-        `No subscription payment found for gatewayChargeId=${command.gatewayChargeId}`,
+        `No payment found for gatewayChargeId=${command.gatewayChargeId}`,
       );
     }
 
-    const subscription = await this.subscriptionRepository.findById(
-      payment.subscriptionId,
-    );
-    if (!subscription) {
-      throw new NotFoundException(
-        `Subscription not found id=${payment.subscriptionId}`,
-      );
-    }
-
-    // 2. Status não confirmado: marca a cobrança como FAILED e não prorroga.
+    // 2. Status não confirmado: marca FAILED e não prorroga.
     if (
       command.status &&
       !PAID_STATUSES.has(command.status.trim().toLowerCase())
@@ -103,65 +97,65 @@ export class ProcessSubscriptionWebhookUseCase {
       );
       await this.paymentRepository.updateSettlement(payment.id, {
         status: SubscriptionPaymentStatusEnum.FAILED,
-        periodEnd: null,
+        paidPeriodEnd: null,
       });
-      return subscription;
+      return {
+        paymentId: payment.id,
+        status: SubscriptionPaymentStatusEnum.FAILED,
+        customerId: payment.externalId,
+        newDueDate: null,
+      };
     }
 
-    // 3. Idempotência: cobrança já confirmada não prorroga de novo.
+    // 3. Idempotência: já confirmada, não prorroga de novo.
     if (payment.status === SubscriptionPaymentStatusEnum.PAID) {
       this.logger.warn(
         `[SubscriptionWebhook] Evento duplicado ignorado paymentId=${payment.id}`,
       );
-      return subscription;
+      return {
+        paymentId: payment.id,
+        status: SubscriptionPaymentStatusEnum.PAID,
+        customerId: payment.externalId,
+        newDueDate: payment.paidPeriodEnd ?? null,
+      };
     }
 
-    const plan = await this.planRepository.findById(subscription.planId);
-    if (!plan) {
+    // 4. Localiza o cliente (fonte da verdade) para calcular a prorrogação.
+    const customer = await this.customerRepository.findById(payment.externalId);
+    if (!customer) {
       throw new NotFoundException(
-        `Plan not found id=${subscription.planId} (subscription ${subscription.id})`,
+        `Customer not found id=${payment.externalId}`,
       );
     }
 
     const paidAt = new Date();
-    const newPeriodEnd = nextPeriodEnd(
-      subscription.currentPeriodEnd,
-      plan.intervalDays,
-      paidAt,
-    );
+    const currentDue = customer.subDueDate
+      ? new Date(customer.subDueDate)
+      : null;
+    const newDueDate = nextPeriodEnd(currentDue, payment.intervalDays, paidAt);
 
-    // 4. Transação atômica: prorroga a assinatura e confirma a cobrança.
-    const settled = await this.transactionManager.runInTransaction(
-      async (ctx) => {
-        const updatedSubscription =
-          await this.subscriptionRepository.updatePeriod(
-            subscription.id,
-            {
-              status: SubscriptionStatusEnum.ACTIVE,
-              currentPeriodEnd: newPeriodEnd,
-              // Novo pagamento zera a tolerância de prorrogação manual.
-              extendedDays: 0,
-            },
-            ctx,
-          );
-
-        await this.paymentRepository.updateSettlement(
-          payment.id,
-          {
-            status: SubscriptionPaymentStatusEnum.PAID,
-            periodEnd: newPeriodEnd,
-          },
-          ctx,
-        );
-
-        return updatedSubscription;
-      },
-    );
+    // Transação atômica: prorroga o cliente e confirma a cobrança juntos.
+    await this.transactionManager.runInTransaction(async (ctx) => {
+      await this.customerRepository.markPaid(customer.id, newDueDate, ctx);
+      await this.paymentRepository.updateSettlement(
+        payment.id,
+        {
+          status: SubscriptionPaymentStatusEnum.PAID,
+          paidPeriodEnd: newDueDate,
+        },
+        ctx,
+      );
+    });
 
     this.logger.log(
-      `[SubscriptionWebhook] settled subscriptionId=${settled.id} status=${settled.status} periodEnd=${settled.currentPeriodEnd?.toISOString()}`,
+      `[SubscriptionWebhook] paid paymentId=${payment.id} customerId=${customer.id} newDueDate=${newDueDate.toISOString()}`,
     );
 
-    return settled;
+    return {
+      paymentId: payment.id,
+      status: SubscriptionPaymentStatusEnum.PAID,
+      customerId: customer.id,
+      newDueDate,
+    };
   }
 }

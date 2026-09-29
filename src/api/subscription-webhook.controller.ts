@@ -35,16 +35,17 @@ export class SubscriptionWebhookController {
   async handle(@Body() body: DepositWebhookDto) {
     this.logger.log(`[SubscriptionWebhook] body=${JSON.stringify(body)}`);
 
-    const subscription = await this.processSubscriptionWebhook.execute({
+    const result = await this.processSubscriptionWebhook.execute({
       gatewayChargeId: body.id,
       status: body.status,
       rawPayload: body as unknown as Record<string, unknown>,
     });
 
     return {
-      subscriptionId: subscription.id,
-      status: subscription.status,
-      currentPeriodEnd: subscription.currentPeriodEnd,
+      paymentId: result.paymentId,
+      status: result.status,
+      customerId: result.customerId,
+      newDueDate: result.newDueDate,
     };
   }
 }

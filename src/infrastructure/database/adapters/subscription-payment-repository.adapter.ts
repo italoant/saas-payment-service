@@ -27,12 +27,13 @@ export class SubscriptionPaymentRepositoryAdapter
       ctx,
     );
     const created = repo.create({
-      subscriptionId: data.subscriptionId,
       source: data.source,
+      externalId: data.externalId,
       amount: data.amount,
+      intervalDays: data.intervalDays,
       gatewayChargeId: data.gatewayChargeId,
       status: data.status,
-      periodEnd: data.periodEnd ?? null,
+      paidPeriodEnd: data.paidPeriodEnd ?? null,
     });
     const saved = await repo.save(created);
     return this.toModel(saved);
@@ -55,7 +56,7 @@ export class SubscriptionPaymentRepositoryAdapter
     id: number,
     data: {
       status: SubscriptionPaymentStatusEnum;
-      periodEnd: Date | null;
+      paidPeriodEnd: Date | null;
     },
     ctx?: TransactionContext,
   ): Promise<SubscriptionPaymentModel> {
@@ -66,23 +67,24 @@ export class SubscriptionPaymentRepositoryAdapter
     );
     await repo.update(
       { id },
-      { status: data.status, periodEnd: data.periodEnd },
+      { status: data.status, paidPeriodEnd: data.paidPeriodEnd },
     );
     const updated = await repo.findOneOrFail({ where: { id } });
     return this.toModel(updated);
   }
 
-  private toModel(
-    entity: SubscriptionPaymentEntity,
-  ): SubscriptionPaymentModel {
+  private toModel(entity: SubscriptionPaymentEntity): SubscriptionPaymentModel {
     return new SubscriptionPaymentModel({
       id: entity.id,
-      subscriptionId: entity.subscriptionId,
       source: entity.source,
+      externalId: entity.externalId,
       amount: Number(entity.amount),
+      intervalDays: entity.intervalDays,
       gatewayChargeId: entity.gatewayChargeId,
       status: entity.status,
-      periodEnd: entity.periodEnd ? new Date(entity.periodEnd) : null,
+      paidPeriodEnd: entity.paidPeriodEnd
+        ? new Date(entity.paidPeriodEnd)
+        : null,
       createdAt: entity.createdAt,
     });
   }
