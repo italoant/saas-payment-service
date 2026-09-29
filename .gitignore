@@ -11,3 +11,6 @@ saas_payments.sqlite
 *.sqlite
 .vercel
 .env*
+# Exceções: templates versionáveis (não contêm segredos).
+!.env.example
+!.env.migrations.example

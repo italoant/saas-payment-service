@@ -3,6 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   DEPOSIT_WEBHOOK_LOG_REPOSITORY,
+  PLAN_REPOSITORY,
+  SUBSCRIPTION_PAYMENT_REPOSITORY,
+  SUBSCRIPTION_REPOSITORY,
   TRANSACTION_MANAGER,
   WALLET_REPOSITORY,
   WALLET_TRANSACTION_REPOSITORY,
@@ -11,11 +14,17 @@ import type { IConfig } from '@config/config.interface';
 import { WalletEntity } from './entities/wallet.entity';
 import { WalletTransactionHistoryEntity } from './entities/wallet-transaction-history.entity';
 import { DepositWebhookLogEntity } from './entities/deposit-webhook-log.entity';
+import { PlanEntity } from './entities/plan.entity';
+import { SubscriptionEntity } from './entities/subscription.entity';
+import { SubscriptionPaymentEntity } from './entities/subscription-payment.entity';
 import { buildDataSourceOptions } from './typeorm-options';
 import { TypeormTransactionManager } from './adapters/typeorm-transaction-manager';
 import { WalletRepositoryAdapter } from './adapters/wallet-repository.adapter';
 import { WalletTransactionRepositoryAdapter } from './adapters/wallet-transaction-repository.adapter';
 import { DepositWebhookLogRepositoryAdapter } from './adapters/deposit-webhook-log-repository.adapter';
+import { PlanRepositoryAdapter } from './adapters/plan-repository.adapter';
+import { SubscriptionRepositoryAdapter } from './adapters/subscription-repository.adapter';
+import { SubscriptionPaymentRepositoryAdapter } from './adapters/subscription-payment-repository.adapter';
 import { createUnavailableRepository } from './adapters/unavailable-repository';
 
 const PORT_TOKENS = [
@@ -23,6 +32,9 @@ const PORT_TOKENS = [
   WALLET_REPOSITORY,
   WALLET_TRANSACTION_REPOSITORY,
   DEPOSIT_WEBHOOK_LOG_REPOSITORY,
+  PLAN_REPOSITORY,
+  SUBSCRIPTION_REPOSITORY,
+  SUBSCRIPTION_PAYMENT_REPOSITORY,
 ];
 
 /**
@@ -38,6 +50,12 @@ const realProviders: Provider[] = [
   {
     provide: DEPOSIT_WEBHOOK_LOG_REPOSITORY,
     useClass: DepositWebhookLogRepositoryAdapter,
+  },
+  { provide: PLAN_REPOSITORY, useClass: PlanRepositoryAdapter },
+  { provide: SUBSCRIPTION_REPOSITORY, useClass: SubscriptionRepositoryAdapter },
+  {
+    provide: SUBSCRIPTION_PAYMENT_REPOSITORY,
+    useClass: SubscriptionPaymentRepositoryAdapter,
   },
 ];
 
@@ -88,6 +106,9 @@ export class DatabaseModule {
           WalletEntity,
           WalletTransactionHistoryEntity,
           DepositWebhookLogEntity,
+          PlanEntity,
+          SubscriptionEntity,
+          SubscriptionPaymentEntity,
         ]),
       ],
       providers: realProviders,

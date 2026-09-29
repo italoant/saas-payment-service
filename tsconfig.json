@@ -26,5 +26,8 @@
       "@config/*": ["src/config/*"],
       "@shared/*": ["src/shared/*"]
     }
+  },
+  "ts-node": {
+    "require": ["tsconfig-paths/register"]
   }
 }

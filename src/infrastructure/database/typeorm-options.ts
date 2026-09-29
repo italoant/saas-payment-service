@@ -3,11 +3,17 @@ import { DatabaseConfig } from '@config/config.interface';
 import { WalletEntity } from './entities/wallet.entity';
 import { WalletTransactionHistoryEntity } from './entities/wallet-transaction-history.entity';
 import { DepositWebhookLogEntity } from './entities/deposit-webhook-log.entity';
+import { PlanEntity } from './entities/plan.entity';
+import { SubscriptionEntity } from './entities/subscription.entity';
+import { SubscriptionPaymentEntity } from './entities/subscription-payment.entity';
 
 export const ENTITIES = [
   WalletEntity,
   WalletTransactionHistoryEntity,
   DepositWebhookLogEntity,
+  PlanEntity,
+  SubscriptionEntity,
+  SubscriptionPaymentEntity,
 ];
 
 /**
