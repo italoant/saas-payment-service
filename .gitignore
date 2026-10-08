@@ -1,16 +1,20 @@
-/dist
-/node_modules
-/coverage
-*.log
-.env
-.DS_Store
-*.tsbuildinfo
+# Maven
+target/
 
-# Banco SQLite local
-saas_payments.sqlite
-*.sqlite
-.vercel
-.env*
-# Exceções: templates versionáveis (não contêm segredos).
-!.env.example
-!.env.migrations.example
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log

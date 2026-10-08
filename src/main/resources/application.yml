@@ -1,0 +1,50 @@
+server:
+  # Porta padrao 3000 (mesmo default do porte NestJS). Sobrescreva com PORT.
+  port: ${PORT:3000}
+
+spring:
+  application:
+    name: saas-payment-service
+
+  datasource:
+    # Postgres por padrao. Para desenvolvimento rapido sem Postgres, use o
+    # profile `h2` (ver application-h2.yml): mvn spring-boot:run -Dspring-boot.run.profiles=h2
+    # DB_SSLMODE: use "require" em bancos gerenciados (Render/Supabase/Neon),
+    # "disable" (padrao) para Postgres local.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_DATABASE:saas_payments}?sslmode=${DB_SSLMODE:disable}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      # Producao: schema so via migration (Flyway). Nunca "update" em prod.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Reproduz o schema das migrations do TypeORM.
+    baseline-on-migrate: true
+
+# Documentacao Swagger exposta em /doc (UI) e /doc-json (OpenAPI JSON),
+# espelhando o porte NestJS. Protegida por HTTP Basic Auth (SwaggerAuthFilter).
+springdoc:
+  swagger-ui:
+    path: /doc
+  api-docs:
+    path: /doc-json
+
+# Credenciais do Basic Auth da doc. Troque em producao.
+swagger:
+  user: ${SWAGGER_USER:admin}
+  password: ${SWAGGER_PASSWORD:changeme}
+
+# Moeda padrao da wallet (ISO 4217).
+wallet:
+  default-currency: ${WALLET_DEFAULT_CURRENCY:BRL}

@@ -1,0 +1,54 @@
+# Blueprint do Render: cria um web service (Docker) + um Postgres gratuito e
+# conecta os dois automaticamente. Deploy automatico a cada push na branch.
+#
+# Como usar: no dashboard do Render -> New -> Blueprint -> selecione este repo.
+# O Render le este arquivo, cria os recursos e injeta as variaveis do banco.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: saas-payments-db
+    plan: free
+    databaseName: saas_payments
+    # Usuario gerado pelo Render automaticamente.
+
+services:
+  - type: web
+    name: saas-payment-service
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      # Conexao com o Postgres criado acima (injetada pelo Render).
+      - key: DB_HOST
+        fromDatabase:
+          name: saas-payments-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: saas-payments-db
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: saas-payments-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: saas-payments-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: saas-payments-db
+          property: password
+      # SSL exigido pelo Postgres gerenciado do Render.
+      - key: DB_SSLMODE
+        value: require
+      - key: WALLET_DEFAULT_CURRENCY
+        value: BRL
+      # Protecao da doc Swagger. Troque a senha depois no dashboard.
+      - key: SWAGGER_USER
+        value: admin
+      - key: SWAGGER_PASSWORD
+        generateValue: true

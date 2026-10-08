@@ -1,0 +1,20 @@
+# Profile de desenvolvimento sem Postgres: H2 em memoria no modo de
+# compatibilidade com Postgres, para que as MESMAS migrations Flyway
+# (SERIAL, now(), TEXT) apliquem sem alteracao.
+#
+# Uso:
+#   mvn spring-boot:run -Dspring-boot.run.profiles=h2
+#
+# NAO use em producao (dados em memoria, perdidos ao reiniciar).
+spring:
+  datasource:
+    url: jdbc:h2:mem:saas_payments;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
